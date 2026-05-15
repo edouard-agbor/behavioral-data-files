@@ -1,0 +1,26 @@
+job_skills,job_count,pct,skill_type
+Python,2559,57.8,Technical Skill
+Machine Learning,1854,41.9,Technical Skill
+SQL,1797,40.6,Technical Skill
+Data Analysis,1741,39.3,Technical Skill
+Communication,1645,37.1,Soft Skill
+Data Visualization,1333,30.1,Technical Skill
+R,1038,23.4,Technical Skill
+Data Science,995,22.5,Technical Skill
+Tableau,928,21,Technical Skill
+TensorFlow,807,18.2,Technical Skill
+PyTorch,742,16.8,Technical Skill
+Statistics,699,15.8,Technical Skill
+Java,644,14.5,Technical Skill
+AWS,598,13.5,Technical Skill
+Data Mining,596,13.5,Technical Skill
+Project Management,585,13.2,Soft Skill
+Problem Solving,578,13.1,Soft Skill
+Deep Learning,575,13,Technical Skill
+Data Analytics,532,12,Technical Skill
+Power BI,518,11.7,Technical Skill
+Collaboration,485,11,Soft Skill
+Teamwork,480,10.8,Soft Skill
+Computer Science,469,10.6,Technical Skill
+Computer Vision,440,9.9,Technical Skill
+Analytical Skills,439,9.9,Technical Skill

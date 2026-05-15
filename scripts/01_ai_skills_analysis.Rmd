@@ -1,0 +1,862 @@
+---
+title: "The Behavioral Data Files — Episode 1"
+subtitle: "What Skills Actually Get You Hired in AI Right Now?"
+author: "Edouard Tamba | GritGateway"
+date: "May 2026"
+output:
+  html_document:
+    theme: flatly
+    toc: true
+    toc_float: true
+---
+
+```{r setup, include=FALSE}
+# Global settings for every chunk in this document.
+# echo=FALSE   — hides my code from the final blog output
+# message=FALSE — hides package loading messages
+# warning=FALSE — hides warnings
+# fig settings  — default chart dimensions
+knitr::opts_chunk$set(
+  echo    = FALSE,
+  message = FALSE,
+  warning = FALSE,
+  fig.width  = 10,
+  fig.height = 6
+)
+```
+
+```{r packages, message=FALSE, warning=FALSE}
+# Loading the four libraries I need for this analysis.
+# data.table — loads large files (1.3M rows) efficiently
+# tidyverse  — data cleaning + ggplot2 charts
+# janitor    — standardises messy column names
+# scales     — formats percentages and numbers on charts
+library(data.table)
+library(tidyverse)
+library(janitor)
+library(scales)
+library(ggtext)
+
+cat("All packages loaded.\n")
+```
+
+---
+
+# The Question
+
+Every week thousands of people ask the same thing:
+
+> *"What do I actually need to learn to get hired in AI right now?"*
+
+Job boards give you thousands of postings. Influencers give you opinions.
+I gave it **1.3 million LinkedIn job postings** and ran the numbers.
+
+This is what the data actually says.
+
+---
+
+# Step 1 — Peek At The Data
+
+```{r peek-data}
+# Before loading 1.3 million rows I peek at 100 rows first.
+# This confirms column names and structure without waiting.
+# Same logic as: SELECT TOP 100 * FROM table in SQL.
+peek_skills <- fread(
+  "C:/Users/Aedou/Music/DATA_ANALYSIS/behavioral-data-files/data/raw/job_skills.csv",
+  nrows = 100)
+
+peek_postings <- fread(
+  "C:/Users/Aedou/Music/DATA_ANALYSIS/behavioral-data-files/data/raw/linkedin_job_postings.csv",
+  nrows = 100)
+
+salary <- fread(
+  "C:/Users/Aedou/Music/DATA_ANALYSIS/behavioral-data-files/data/raw/ai_job_dataset.csv")
+
+cat("=== JOB SKILLS COLUMNS ===\n");   print(names(peek_skills))
+cat("\n=== JOB POSTINGS COLUMNS ===\n"); print(names(peek_postings))
+cat("\n=== SALARY COLUMNS ===\n");       print(names(salary))
+```
+
+---
+
+# Step 2 — Load Full Datasets
+
+```{r load-full, cache=TRUE}
+# Now that I confirmed the structure I load the full files.
+# fread() from data.table is built for large files.
+# It reads 1.3M rows significantly faster than read_csv().
+# cache=TRUE means R saves the result — if I re-knit
+# without changing this chunk it skips the 60 second wait.
+cat("Loading full datasets — may take 60 seconds...\n")
+
+skills_full <- fread(
+  "C:/Users/Aedou/Music/DATA_ANALYSIS/behavioral-data-files/data/raw/job_skills.csv")
+
+postings_full <- fread(
+  "C:/Users/Aedou/Music/DATA_ANALYSIS/behavioral-data-files/data/raw/linkedin_job_postings.csv")
+
+cat("Skills rows loaded:   ", nrow(skills_full), "\n")
+cat("Postings rows loaded: ", nrow(postings_full), "\n")
+cat("Done.\n")
+```
+
+---
+
+# Step 3 — Filter AI Roles Only
+
+```{r filter-ai}
+# I'm building a search pattern that works like a SQL WHERE
+# clause with multiple OR conditions on the job_title column.
+# paste() + collapse="|" joins keywords into one regex pattern.
+ai_pattern <- paste(c(
+  "artificial intelligence", "machine learning",
+  "data scientist", "ml engineer", "ai engineer",
+  "deep learning", "nlp", "computer vision",
+  "data analyst", "ai researcher", "llm",
+  "generative ai", "prompt engineer"
+), collapse = "|")
+
+# I found non-AI jobs in the first pass — warehouse and
+# logistics roles that LinkedIn's algorithm included when
+# the data was originally scraped. This exclusion pattern
+# removes them. Real world data is never clean.
+exclude_pattern <- paste(c(
+  "fulfillment", "warehouse", "delivery",
+  "driver", "cashier", "retail", "forklift",
+  "associate", "team lead", "package"
+), collapse = "|")
+
+# STEP 1: Keep rows where job_title matches an AI keyword.
+# tolower() makes matching case-insensitive.
+# SQL: WHERE LOWER(job_title) LIKE '%data scientist%' OR ...
+ai_postings <- postings_full %>%
+  filter(str_detect(tolower(job_title), ai_pattern))
+
+# STEP 2: Remove false positives.
+# ! means NOT — keep everything that does NOT match exclusions.
+# SQL: AND LOWER(job_title) NOT LIKE '%fulfillment%' AND ...
+ai_postings_clean <- ai_postings %>%
+  filter(!str_detect(tolower(job_title), exclude_pattern))
+
+cat("Total postings in dataset: ", nrow(postings_full), "\n")
+cat("AI roles before cleaning:  ", nrow(ai_postings), "\n")
+cat("False positives removed:   ",
+    nrow(ai_postings) - nrow(ai_postings_clean), "\n")
+cat("AI roles after cleaning:   ", nrow(ai_postings_clean), "\n")
+cat("% of total that are AI:    ",
+    round(nrow(ai_postings_clean)/nrow(postings_full)*100, 1), "%\n")
+
+cat("\nTop 10 AI job titles after cleaning:\n")
+print(ai_postings_clean %>%
+        count(job_title, sort = TRUE) %>%
+        slice_head(n = 10))
+```
+
+---
+
+# Step 4 — Join Skills to AI Roles
+
+```{r join-skills}
+# I join the skills file to my clean AI postings using
+# job_link as the shared key between both tables.
+#
+# SQL equivalent:
+# SELECT s.job_skills, p.job_title, p.company, p.job_location
+# FROM skills_full s
+# INNER JOIN ai_postings_clean p ON s.job_link = p.job_link
+#
+# INNER JOIN = only rows where job_link exists in BOTH tables.
+# Jobs with no skills listed are dropped.
+# Skills with no matching AI job are dropped.
+ai_skills <- skills_full %>%
+  inner_join(ai_postings_clean, by = "job_link") %>%
+  clean_names()
+
+cat("Rows after join:     ", nrow(ai_skills), "\n")
+cat("Unique AI jobs:      ", n_distinct(ai_skills$job_link), "\n")
+cat("Unique skills found: ", n_distinct(ai_skills$job_skills), "\n")
+```
+
+---
+
+# Step 5 — Explode Skills to One Per Row
+
+```{r explode-skills}
+# My job_skills column has all skills in one cell separated
+# by commas — like a list inside a single database field.
+# I need to EXPLODE it so each skill gets its own row.
+# This is going from WIDE to LONG format.
+# PostgreSQL equivalent: unnest(string_to_array(job_skills,','))
+
+ai_skills_long <- ai_skills %>%
+  separate_rows(job_skills, sep = ",") %>%
+
+  # str_trim removes whitespace around skill names
+  # so "Python" not " Python"
+  mutate(job_skills = str_trim(job_skills)) %>%
+
+  # Remove empty rows created during splitting
+  filter(job_skills != "" & !is.na(job_skills))
+
+cat("Rows BEFORE exploding:", nrow(ai_skills), "\n")
+cat("Rows AFTER exploding: ", nrow(ai_skills_long), "\n")
+cat("Average skills per job:",
+    round(nrow(ai_skills_long)/n_distinct(ai_skills_long$job_link), 0), "\n")
+```
+
+---
+
+# Step 6 — Standardise & Count Top Skills
+
+```{r standardise-count}
+# PROBLEM 1: Same skills counted twice due to capitalisation
+# "Machine Learning" and "Machine learning" = two counts
+# FIX: str_to_title() standardises everything to Title Case
+# so all variations merge into one before counting.
+#
+# PROBLEM 2: Acronyms broken by Title Case
+# "SQL" becomes "Sql", "AWS" becomes "Aws"
+# FIX: case_when() manually corrects known acronyms.
+# This is R's version of SQL CASE WHEN:
+# CASE WHEN job_skills = 'Sql' THEN 'SQL' ELSE job_skills END
+#
+# PROBLEM 3: "Communication" and "Communication Skills"
+# are the same skill with two different labels.
+# FIX: both map to "Communication" in case_when.
+
+ai_skills_clean <- ai_skills_long %>%
+  mutate(
+    # Step 1 — Standardise to Title Case first
+    job_skills = str_to_title(str_trim(job_skills)),
+
+    # Step 2 — Fix acronyms and merge duplicate labels.
+    # TRUE ~ job_skills is the ELSE clause —
+    # anything not listed here keeps its current name.
+    job_skills = case_when(
+      job_skills == "Sql"                  ~ "SQL",
+      job_skills == "Aws"                  ~ "AWS",
+      job_skills == "Pytorch"              ~ "PyTorch",
+      job_skills == "Tensorflow"           ~ "TensorFlow",
+      job_skills == "Power Bi"             ~ "Power BI",
+      job_skills == "Nlp"                  ~ "NLP",
+      job_skills == "Llm"                  ~ "LLM",
+      job_skills == "Communication Skills" ~ "Communication",
+      job_skills == "R Programming"        ~ "R",
+      TRUE                                 ~ job_skills
+    )
+  )
+
+# I tag soft skills separately so the chart tells a richer story —
+# technical vs human skills both matter in AI roles.
+# This becomes a key insight in the LinkedIn post.
+soft_skills <- c(
+  "Communication", "Collaboration", "Teamwork",
+  "Problem Solving", "Project Management",
+  "Leadership", "Critical Thinking",
+  "Attention To Detail", "Time Management",
+  "Presentation Skills"
+)
+
+# Count unique jobs requiring each skill after standardisation.
+# I use n_distinct(job_link) not n() to count jobs, not rows.
+# SQL equivalent:
+# SELECT job_skills, COUNT(DISTINCT job_link) as job_count
+# FROM ai_skills_clean
+# GROUP BY job_skills
+# ORDER BY job_count DESC
+# LIMIT 25
+top_skills <- ai_skills_clean %>%
+  group_by(job_skills) %>%
+  summarise(
+    job_count = n_distinct(job_link),
+    .groups = "drop"
+  ) %>%
+  arrange(desc(job_count)) %>%
+  slice_head(n = 25) %>%
+  mutate(
+    # Calculate what % of all AI jobs require this skill
+    pct = round(
+      job_count / n_distinct(ai_skills_clean$job_link) * 100, 1),
+
+    # Tag each skill — drives colour coding in the chart
+    skill_type = ifelse(
+      job_skills %in% soft_skills, "Soft Skill", "Technical Skill"),
+
+    # Reorder factor so highest bar appears at top of chart
+    job_skills = fct_reorder(job_skills, pct)
+  )
+
+cat("=== TOP 25 AI SKILLS AFTER STANDARDISATION ===\n")
+print(top_skills %>%
+        select(job_skills, job_count, pct, skill_type), n = 25)
+```
+
+---
+
+# Step 7 — The Chart
+```{r}
+#install.packages("ggtext")
+library(ggtext)
+# ==============================================================
+# STORYTELLING WITH DATA — KNAFLIC PRINCIPLES APPLIED
+# VERSION 3 — All visual issues resolved
+# ==============================================================
+#
+# PRINCIPLE 1 — RIGHT CHART TYPE
+# Horizontal bars for long labels — readers scan naturally
+# top to bottom matching our ranked order.
+#
+# PRINCIPLE 2 — ACTION TITLE
+# Title communicates the TAKEAWAY not just the topic.
+#
+# PRINCIPLE 3 — COLOUR WITH PURPOSE
+# Blue  = top 4 core non-negotiables
+# Amber = soft skills (the surprise finding)
+# Grey  = all other technical skills (recede)
+#
+# PRINCIPLE 4 — LABEL DATA DIRECTLY
+# Percentage on every bar — no axis needed.
+#
+# PRINCIPLE 5 — REMOVE ALL CLUTTER
+# No border, no gridlines, no legend, no axis, no ticks.
+# Rect annotation removed — it was hijacking the Teamwork label.
+# Knaflic: if an element causes confusion, remove it.
+#
+# PRINCIPLE 6 — ANNOTATE KEY INSIGHTS
+# Primary annotation on Communication — the big surprise.
+# Secondary annotation at bottom — confirms soft skills
+# are a pattern across top 20, not just one fluke.
+# ==============================================================
+
+# Trim to top 20 — remove noise below 11%
+top_20 <- top_skills %>%
+  slice_head(n = 20) %>%
+  mutate(
+    bar_color = case_when(
+      job_skills %in% c("Python", "Machine Learning",
+                        "SQL", "Data Analysis") ~ "Top Technical",
+      skill_type == "Soft Skill"                ~ "Soft Skill",
+      TRUE                                      ~ "Other Technical"
+    )
+  )
+
+ggplot(top_20,
+       aes(x    = job_skills,
+           y    = pct,
+           fill = bar_color)) +
+
+  # BARS
+  geom_col(width = 0.65) +
+
+  # DIRECT LABELS — bold on highlighted bars, plain on grey
+  # Knaflic: label data directly, remove axis entirely
+  geom_text(
+    aes(
+      label    = paste0(pct, "%"),
+      fontface = ifelse(bar_color == "Other Technical",
+                        "plain", "bold")
+    ),
+    hjust = -0.12,
+    size  = 3.7,
+    color = "#374151"
+  ) +
+
+  # PRIMARY ANNOTATION — Communication is the surprise
+  # Knaflic: direct the reader to the one thing that matters
+  annotate(
+    geom       = "text",
+    x          = "Communication",
+    y          = 54,
+    label      = "Beats R, Tableau\n& TensorFlow",
+    hjust      = 0,
+    size       = 3.4,
+    color      = "#92400e",
+    fontface   = "bold.italic",
+    lineheight = 1.3
+  ) +
+
+  # Arrow — yend=42 keeps tip clear of the 37.1% label
+  # Missing comma after yend was causing syntax error — fixed
+  annotate(
+    geom      = "segment",
+    x         = "Communication",
+    xend      = "Communication",
+    y         = 53,
+    yend      = 42,
+    color     = "#92400e",
+    linewidth = 0.6,
+    arrow     = arrow(length = unit(0.18, "cm"),
+                      type   = "closed")
+  ) +
+
+  # SECONDARY ANNOTATION — placed at Power BI (bottom bar)
+  # Moved away from Teamwork which was hijacking its label
+  # Knaflic: annotation should clarify, never create confusion
+  annotate(
+    geom       = "text",
+    x          = "Power BI",
+    y          = 30,
+    label      = "5 of the top 20 skills\nare soft skills",
+    hjust      = 0,
+    size       = 3.1,
+    color      = "#92400e",
+    fontface   = "italic",
+    lineheight = 1.3
+  ) +
+
+  coord_flip() +
+
+  # COLOURS — purposeful not decorative
+  scale_fill_manual(
+    values = c(
+      "Top Technical"   = "#2563EB",
+      "Soft Skill"      = "#f59e0b",
+      "Other Technical" = "#d1d5db"
+    )
+  ) +
+
+  # Remove x-axis — direct labels replace it
+  # Knaflic: remove axis when data is labelled directly
+  scale_y_continuous(
+    limits = c(0, max(top_20$pct) * 1.42),
+    labels = NULL,
+    breaks = NULL
+  ) +
+
+  labs(
+    title = "Python Is Essential But Soft Skills Beat Most AI Tools",
+
+    # ggtext HTML subtitle — actual coloured squares
+    # instead of plain text saying colour names
+    subtitle = "% of 4,400+ AI job postings on LinkedIn (2024) requiring each skill<br>
+<span style='color:#2563EB'>■ Core non-negotiables</span> &nbsp;&nbsp;
+<span style='color:#f59e0b'>■ Soft skills</span> &nbsp;&nbsp;
+<span style='color:#b0b7c3'>■ Other technical skills</span>",
+
+    caption = "Source: LinkedIn Job Postings & Skills Dataset · 1.3M rows · Kaggle 2024\nAnalysis: Edouard AGBOR | The Behavioral Data Files — Episode 1 | gritgateway.com",
+    x = NULL,
+    y = NULL
+  ) +
+
+  theme_minimal(base_size = 12) +
+  theme(
+
+    # Bold dark title — first thing the eye lands on
+    plot.title = element_text(
+      face       = "bold",
+      size       = 17,
+      color      = "#0f172a",
+      lineheight = 1.2,
+      margin     = margin(b = 4)
+    ),
+
+    # element_markdown activates HTML colour squares in subtitle
+    plot.subtitle = element_markdown(
+      color      = "#64748b",
+      size       = 10.5,
+      lineheight = 1.6,
+      margin     = margin(b = 16)
+    ),
+
+    # Source — very muted, left aligned
+    # Knaflic: left align for cleaner visual lines
+    plot.caption = element_text(
+      color      = "#9ca3af",
+      size       = 8.5,
+      lineheight = 1.4,
+      hjust      = 0
+    ),
+
+    # Skill names — readable, not competing with bars
+    axis.text.y = element_text(
+      color  = "#1e293b",
+      size   = 11.5,
+      margin = margin(r = 4)
+    ),
+
+    # Knaflic declutter checklist — all removed
+    legend.position  = "none",
+    panel.grid       = element_blank(),
+    panel.border     = element_blank(),
+    axis.ticks       = element_blank(),
+    plot.background  = element_rect(fill = "white", color = NA),
+    panel.background = element_rect(fill = "white", color = NA),
+    plot.margin      = margin(25, 45, 20, 20)
+  )
+
+# Full absolute path — consistent with all fread() calls
+ggsave(
+  filename = "C:/Users/Aedou/Music/DATA_ANALYSIS/behavioral-data-files/outputs/plots/01_top_ai_skills.png",
+  width    = 13,
+  height   = 10,
+  dpi      = 300,
+  bg       = "white"
+)
+
+cat("Chart saved.\n")
+
+```
+
+
+```{r}
+# Loading the REAL salary data from aijobs.net (now foorilla.com)
+# Source: anonymous professional salary submissions worldwide
+# License: CC0 public domain — free to use and publish
+# This replaces the synthetic Kaggle dataset entirely.
+
+salary_real <- fread(
+  "C:/Users/Aedou/Music/DATA_ANALYSIS/behavioral-data-files/data/raw/salaries_real.csv"
+)
+
+# Integrity check — confirm it loaded correctly
+cat("=== REAL SALARY DATA INTEGRITY CHECK ===\n")
+cat("Rows:   ", nrow(salary_real), "\n")
+cat("Cols:   ", ncol(salary_real), "\n")
+
+cat("\nYears covered:\n")
+print(table(salary_real$work_year))
+
+cat("\nExperience level distribution:\n")
+print(table(salary_real$experience_level))
+
+cat("\nEmployment type distribution:\n")
+print(table(salary_real$employment_type))
+
+cat("\nSalary range (USD):\n")
+cat("Min:    $", format(min(salary_real$salary_in_usd,
+                            na.rm=TRUE), big.mark=","), "\n")
+cat("Max:    $", format(max(salary_real$salary_in_usd,
+                            na.rm=TRUE), big.mark=","), "\n")
+cat("Median: $", format(median(salary_real$salary_in_usd,
+                               na.rm=TRUE), big.mark=","), "\n")
+cat("Mean:   $", format(round(mean(salary_real$salary_in_usd,
+                               na.rm=TRUE)), big.mark=","), "\n")
+
+cat("\nTop 15 job titles by count:\n")
+print(
+  salary_real %>%
+    count(job_title, sort = TRUE) %>%
+    slice_head(n = 15)
+)
+
+cat("\nMissing values per column:\n")
+print(colSums(is.na(salary_real)))
+```
+
+```{r}
+# I'm using REAL salary data from aijobs.net — anonymous
+# professional submissions, not synthetic or modelled data.
+# 151,445 rows. Zero missing values. Real distributions.
+#
+# STRATEGY: No skills column exists in salary data.
+# I use job title as a PROXY for skills.
+# ML Engineer → Python, TensorFlow, PyTorch
+# Data Analyst → SQL, Tableau, Excel
+# Data Scientist → Python, R, Statistics, SQL
+# This is the honest professional approach.
+#
+# FILTERS APPLIED:
+# 1. 2024-2025 only — aligns with LinkedIn skills data period
+# 2. Full-time only — 99.4% of data, removes outliers
+# 3. AI/data roles only — removes generic "Manager", "Engineer"
+# 4. Minimum 100 records per title — statistical reliability
+
+# Define AI/data role keywords
+salary_ai_pattern <- paste(c(
+  "data scientist", "data analyst", "data engineer",
+  "machine learning", "ai engineer", "ml engineer",
+  "research scientist", "applied scientist",
+  "analytics engineer", "computer vision",
+  "nlp engineer", "deep learning", "ai architect",
+  "business intelligence", "data architect",
+  "mlops", "llm engineer", "prompt engineer"
+), collapse = "|")
+
+# STEP 1 — Filter to relevant rows
+salary_filtered <- salary_real %>%
+  filter(
+    work_year    %in% c(2024, 2025),
+    employment_type == "FT",
+    str_detect(tolower(job_title), salary_ai_pattern)
+  )
+
+cat("Rows after filtering:    ", nrow(salary_filtered), "\n")
+cat("Unique job titles:       ",
+    n_distinct(salary_filtered$job_title), "\n")
+cat("Year split:\n")
+print(table(salary_filtered$work_year))
+
+# STEP 2 — Median salary by job title
+# Median not mean — salary distributions are right-skewed.
+# A few $800k outliers would drag the mean up dishonestly.
+salary_by_role <- salary_filtered %>%
+  group_by(job_title) %>%
+  summarise(
+    median_salary = median(salary_in_usd, na.rm = TRUE),
+    mean_salary   = round(mean(salary_in_usd, na.rm = TRUE)),
+    sample_size   = n(),
+    .groups = "drop"
+  ) %>%
+  # Only roles with 100+ data points — statistically reliable
+  filter(sample_size >= 100) %>%
+  arrange(desc(median_salary)) %>%
+  slice_head(n = 15)
+
+cat("\n=== MEDIAN SALARY BY AI/DATA ROLE (top 15) ===\n")
+print(salary_by_role %>%
+        mutate(
+          median_salary = paste0("$",
+                          format(median_salary, big.mark = ",")),
+          mean_salary   = paste0("$",
+                          format(mean_salary,   big.mark = ","))
+        ))
+```
+
+
+```{r}
+# I'm manually mapping job roles to the skills from our
+# top 20 LinkedIn analysis. No skills column exists in
+# salary data so this bridge is necessary and transparent.
+# This is a judgment call based on industry knowledge —
+# I document it so readers can audit my logic.
+
+skill_salary_map <- tribble(
+  ~skill,              ~primary_role,                ~median_salary,
+  "Python",            "Data Scientist",                     150000,
+  "Machine Learning",  "Machine Learning Engineer",          190000,
+  "SQL",               "Data Engineer",                      140900,
+  "Data Analysis",     "Analytics Engineer",                 145000,
+  "Communication",     "Data Scientist",                     150000,
+  "Data Visualization","Business Intelligence Engineer",     142050,
+  "R",                 "Research Scientist",                 183825,
+  "Data Science",      "Data Scientist",                     150000,
+  "Tableau",           "Business Intelligence Engineer",     142050,
+  "TensorFlow",        "Machine Learning Engineer",          190000,
+  "PyTorch",           "Machine Learning Engineer",          190000,
+  "Statistics",        "Research Scientist",                 183825,
+  "AWS",               "MLOps Engineer",                     160000,
+  "Deep Learning",     "Machine Learning Scientist",         165000,
+  "Power BI",          "Business Intelligence Engineer",     142050,
+  "Project Management","Data Architect",                     151898,
+  "Problem Solving",   "Data Scientist",                     150000,
+  "Data Analytics",    "Analytics Engineer",                 145000,
+  "Computer Vision",   "Computer Vision Engineer",           170200,
+  "Data Mining",       "Data Engineer",                      140900
+) %>%
+  # Tag skill type — same categories as the demand chart
+  mutate(
+    skill_type = case_when(
+      skill %in% c("Communication", "Problem Solving",
+                   "Project Management")    ~ "Soft Skill",
+      median_salary >= 165000              ~ "High Salary Technical",
+      TRUE                                 ~ "Standard Technical"
+    ),
+    # Format for chart labels
+    salary_label = paste0("$",
+                   format(median_salary, big.mark=",", trim=TRUE)),
+    # Reorder for chart
+    skill = fct_reorder(skill, median_salary)
+  )
+
+cat("=== SKILL TO SALARY MAPPING ===\n")
+print(skill_salary_map %>%
+        arrange(desc(median_salary)) %>%
+        select(skill, primary_role, median_salary, skill_type))
+```
+
+
+
+```{r}
+# Merge Data Analytics into Data Analysis — same salary, same role.
+# Two bars at identical height looks like a data error to readers.
+skill_salary_map <- skill_salary_map %>%
+  filter(skill != "Data Analytics")
+
+# Salary chart — Knaflic principles
+# Reference line at $150k = Data Scientist benchmark
+# Blue = premium skills, Amber = soft skills, Grey = standard
+
+ggplot(skill_salary_map,
+       aes(x = skill, y = median_salary, fill = skill_type)) +
+
+  # Dashed reference line at $150k benchmark
+  geom_hline(yintercept = 150000,
+             color      = "#94a3b8",
+             linewidth  = 0.5,
+             linetype   = "dashed") +
+
+  geom_col(width = 0.65) +
+
+  # Direct salary labels
+  geom_text(
+    aes(label    = salary_label,
+        fontface = ifelse(skill_type == "High Salary Technical",
+                          "bold", "plain")),
+    hjust = -0.12,
+    size  = 3.5,
+    color = "#374151") +
+
+  # PRIMARY ANNOTATION — moved higher to clear bar label
+  annotate("text",
+    x        = "TensorFlow",
+    y        = 222000,
+    label    = "ML specialisation pays\n$40k more than Python alone",
+    hjust    = 0,
+    size     = 3.2,
+    color    = "#1e40af",
+    fontface = "bold.italic",
+    lineheight = 1.3) +
+
+  # Arrow — starts below annotation, ends at bar tip
+  annotate("segment",
+    x         = "TensorFlow",
+    xend      = "TensorFlow",
+    y         = 219000,
+    yend      = 208000,
+    color     = "#1e40af",
+    linewidth = 0.6,
+    arrow     = arrow(length = unit(0.18, "cm"),
+                      type   = "closed")) +
+
+  # SECONDARY ANNOTATION — SQL tension
+  annotate("text",
+    x        = "SQL",
+    y        = 175000,
+    label    = "#3 most demanded\nbut lowest salary",
+    hjust    = 0,
+    size     = 3.0,
+    color    = "#64748b",
+    fontface = "italic",
+    lineheight = 1.3) +
+
+  # BENCHMARK LABEL — top left, always visible inside plot
+  annotate("text",
+    x        = 19,
+    y        = 152500,
+    label    = "$150k benchmark →",
+    hjust    = 1,
+    size     = 2.9,
+    color    = "white",
+    fontface = "italic") +
+
+  coord_flip() +
+
+  scale_fill_manual(values = c(
+    "High Salary Technical" = "#2563EB",
+    "Standard Technical"    = "#d1d5db",
+    "Soft Skill"            = "#f59e0b")) +
+
+  scale_y_continuous(
+    limits = c(0, max(skill_salary_map$median_salary) * 1.35),
+    labels = NULL,
+    breaks = NULL) +
+
+  labs(
+    title    = "The Skills That Pay Most Are NOT the Most Demanded",
+    subtitle = "Median salary mapped to top 20 AI skills | Real data: aijobs.net · 65k+ submissions · 2024–2025<br>
+<span style='color:#2563EB'>■ Premium salary (≥$165k)</span> &nbsp;&nbsp;
+<span style='color:#f59e0b'>■ Soft skills</span> &nbsp;&nbsp;
+<span style='color:#b0b7c3'>■ Standard technical</span>",
+    caption  = "Salary: aijobs.net real survey · CC0 license | Skills demand: LinkedIn 1.3M rows · Kaggle 2024\nAnalysis: Edouard AGBOR | The Behavioral Data Files — Episode 1 | gritgateway.com",
+    x = NULL,
+    y = NULL) +
+
+  theme_minimal(base_size = 12) +
+  theme(
+    plot.title    = element_text(
+      face = "bold", size = 16,
+      color = "#0f172a", lineheight = 1.2,
+      margin = margin(b = 4)),
+    plot.subtitle = element_markdown(
+      color = "#64748b", size = 10,
+      lineheight = 1.6, margin = margin(b = 14)),
+    plot.caption  = element_text(
+      color = "#9ca3af", size = 8,
+      lineheight = 1.5, hjust = 0),
+    axis.text.y   = element_text(
+      color = "#1e293b", size = 11,
+      margin = margin(r = 4)),
+    legend.position  = "none",
+    panel.grid       = element_blank(),
+    panel.border     = element_blank(),
+    axis.ticks       = element_blank(),
+    plot.background  = element_rect(fill = "white", color = NA),
+    panel.background = element_rect(fill = "white", color = NA),
+    # Increased bottom margin — benchmark label now visible
+    plot.margin      = margin(25, 55, 35, 20))
+
+ggsave(
+  "C:/Users/Aedou/Music/DATA_ANALYSIS/behavioral-data-files/outputs/plots/02_salary_by_skill.png",
+  width = 13, height = 10, dpi = 300, bg = "white")
+
+cat("Salary chart saved.\n")
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+---
+
+# Step 8 — Save Clean Data
+
+```{r save}
+# I save the clean results so I can reuse them later —
+# for the blog, for GitHub, and for future episodes.
+# This is my contribution to the public data ecosystem.
+write_csv(top_skills,
+          "data/clean/top_ai_skills_2024.csv")
+
+cat("Clean data saved to data/clean/\n")
+```
+
+---
+
+# The Finding
+
+> *We fill this section together once the chart is confirmed.*
+
+---
+
+# About This Analysis
+
+**Data:** LinkedIn Job Postings & Skills — 1.3M rows (Kaggle 2024)
+
+**Tools:** R · data.table · tidyverse · ggplot2
+
+**Author:** Edouard Tamba —
+Founder of GritGateway | M.S. Applied Human-Centered AI,
+Syracuse University | Chevening Scholar | Mandela Washington Fellow
+
+---
+
+*Next episode: Do people who study abroad return home?*
